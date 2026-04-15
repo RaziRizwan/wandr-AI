@@ -1,0 +1,13 @@
+[server]
+headless = true
+enableCORS = false
+# Disable file watcher — prevents Streamlit from scanning all installed
+# packages (including transformers) for changes on every save.
+# This eliminates the torchvision ModuleNotFoundError warnings entirely.
+fileWatcherType = "none"
+
+[logger]
+level = "error"
+
+[runner]
+fastReruns = true
