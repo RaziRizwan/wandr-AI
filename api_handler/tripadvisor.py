@@ -279,3 +279,62 @@ def fetch_all_spots(
                 pass
 
     return spots, None
+
+
+def fetch_supervised_spots(
+    queries: list[str],
+    location: str,
+    api_key: str,
+    max_results_per_query: int = 10,
+    max_candidates: int = 36,
+) -> tuple:
+    """
+    Run multiple TripAdvisor searches from a Hugging Face search plan.
+
+    TripAdvisor caps one search at 10 results, so this function broadens recall
+    by searching several targeted query variants, deduplicating by location_id,
+    then fetching details for the combined candidate set in parallel.
+    """
+    if not queries:
+        return [], None
+
+    deduped_results = {}
+    first_error = None
+
+    for query in queries:
+        results, err = search_locations(
+            query=query,
+            location=location,
+            api_key=api_key,
+            limit=max_results_per_query,
+        )
+        if err and not first_error:
+            first_error = err
+        if not results:
+            continue
+        for result in results:
+            loc_id = result.get("location_id")
+            if loc_id and loc_id not in deduped_results:
+                result["matched_query"] = query
+                deduped_results[loc_id] = result
+            if len(deduped_results) >= max_candidates:
+                break
+        if len(deduped_results) >= max_candidates:
+            break
+
+    if not deduped_results:
+        return (None, first_error) if first_error else ([], None)
+
+    spots = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {
+            ex.submit(fetch_spot_details, r, api_key, location): r
+            for r in deduped_results.values()
+        }
+        for future in as_completed(futures):
+            try:
+                spots.append(future.result())
+            except Exception:
+                pass
+
+    return spots, None

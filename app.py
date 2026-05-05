@@ -128,8 +128,13 @@ TA_KEY     = st.session_state["ta_key"]
 # Deferred until after page config and key setup to avoid import errors
 # from interfering with the Streamlit page config call.
 from frontend.components import render_css, render_hero, render_filters, render_cards
-from api_handler.tripadvisor import fetch_all_spots
-from api_handler.huggingface import parse_intent, validate_locations
+from api_handler.tripadvisor import fetch_supervised_spots
+from api_handler.huggingface import (
+    audit_sentiments,
+    parse_intent,
+    plan_search_queries,
+    validate_locations,
+)
 from ml_model.sentiment import analyze_reviews
 from ml_model.gem_detector import rank_places
 from utils.helpers import esc
@@ -237,13 +242,17 @@ if send and user_input.strip():
         st.session_state.messages.append({"role": "assistant", "content": narrative, "error": err})
         st.stop()
 
-    # ── STEP 2: TripAdvisor data fetch ─────────────────────────────────────────
-    with st.spinner(f"📍 Finding spots in {loc}..."):
-        spots, ta_err = fetch_all_spots(
-            query=params.get("query", "tourist attractions"),
+    # ── STEP 2: Hugging Face supervised TripAdvisor search ─────────────────────
+    with st.spinner(f"📍 Planning a broader search for {loc}..."):
+        search_queries = plan_search_queries(params, HF_KEY, HF_MODEL)
+
+    with st.spinner(f"📍 Finding more possible gems in {loc}..."):
+        spots, ta_err = fetch_supervised_spots(
+            queries=search_queries,
             location=loc,
             api_key=TA_KEY,
-            max_results=12,
+            max_results_per_query=10,
+            max_candidates=36,
         )
 
     if ta_err:
@@ -261,11 +270,20 @@ if send and user_input.strip():
     with st.spinner(f"✅ Verifying results are actually in {loc}..."):
         spots = validate_locations(loc, spots, HF_KEY, HF_MODEL)
 
+    if not spots:
+        err = f"No verified results found inside {loc}. Try a broader query."
+        st.markdown(f'<div class="swarn">🗺 {err}</div>', unsafe_allow_html=True)
+        st.session_state.messages.append({"role": "assistant", "content": narrative, "error": err})
+        st.stop()
+
     # ── STEP 4: ML sentiment analysis ──────────────────────────────────────────
     with st.spinner("🧠 Analysing reviews with ML sentiment model..."):
         for spot in spots:
             # Pass raw review texts to DistilBERT; result stored in spot["sentiment"]
             spot["sentiment"] = analyze_reviews(spot.get("raw_reviews", []))
+
+    with st.spinner("🧠 Auditing review sentiment with Hugging Face..."):
+        spots = audit_sentiments(spots, HF_KEY, HF_MODEL)
 
     # ── STEP 5: Hidden gem detection and ranking ────────────────────────────────
     with st.spinner("💎 Detecting hidden gems..."):
