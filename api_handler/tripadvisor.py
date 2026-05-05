@@ -21,8 +21,8 @@ TripAdvisor Content API was chosen because:
 TRADE-OFFS:
   - TripAdvisor returns at most 10 results per search query.
   - Review counts per API call are capped at 5 (sufficient for ML analysis).
-  - Results occasionally include wrong-location entries (handled by Gemini
-    location validation in api_handler/gemini.py).
+  - Results occasionally include wrong-location entries (handled by Hugging Face
+    location validation in api_handler/huggingface.py).
 
 API PIPELINE PER SEARCH:
   1. search_locations()    → GET /location/search  → list of location_ids
@@ -80,8 +80,8 @@ def search_locations(query: str, location: str, api_key: str, limit: int = 10) -
     This improves result relevance over querying by location alone.
 
     Args:
-        query:    The type of place to search for (from Gemini intent parsing).
-        location: The validated city+country string (from Gemini).
+        query:    The type of place to search for (from Hugging Face intent parsing).
+        location: The validated city+country string (from Hugging Face).
         api_key:  TripAdvisor API key (passed at call time, never hardcoded).
         limit:    Max results to return (default 10, TripAdvisor max is 10).
 
@@ -248,8 +248,8 @@ def fetch_all_spots(
     O(single_request) since all 10 detail fetches run simultaneously.
 
     Args:
-        query:       Search intent string from Gemini (e.g. "street food stalls").
-        location:    City + country string from Gemini (e.g. "Lahore, Pakistan").
+        query:       Search intent string from Hugging Face (e.g. "street food stalls").
+        location:    City + country string from Hugging Face (e.g. "Lahore, Pakistan").
         api_key:     TripAdvisor API key.
         max_results: Maximum spots to return (capped at 10 by TripAdvisor).
 

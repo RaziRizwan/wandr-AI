@@ -5,7 +5,7 @@ Streamlit application entry point and pipeline orchestrator.
 
 PROJECT OVERVIEW:
     Wandr is a portfolio-grade AI/ML travel recommendation system that:
-      1. Uses Gemini LLM to parse natural language queries and validate results
+      1. Uses Hugging Face LLM inference to parse natural language queries and validate results
       2. Fetches real-time place data from the TripAdvisor Content API
       3. Applies DistilBERT ML sentiment analysis to traveler reviews
       4. Runs a custom hidden gem detection scoring model
@@ -17,7 +17,7 @@ FULL PIPELINE (executed per user query):
     └────────────────────────┬────────────────────────────────────┘
                              ▼
     ┌─────────────────────────────────────────────────────────────┐
-    │  STEP 1: Gemini Intent Parsing (api_handler/gemini.py)     │
+    │  STEP 1: Hugging Face Intent Parsing (api_handler/huggingface.py) │
     │  → Extracts: query="street food stalls"                    │
     │              location="Lahore, Pakistan"                   │
     │  → Generates: user-facing narrative paragraph              │
@@ -33,7 +33,7 @@ FULL PIPELINE (executed per user query):
     └────────────────────────┬────────────────────────────────────┘
                              ▼
     ┌─────────────────────────────────────────────────────────────┐
-    │  STEP 3: Gemini Location Validation (api_handler/gemini.py)│
+    │  STEP 3: Hugging Face Location Validation                  │
     │  → Reads each result's address                             │
     │  → Removes results from wrong cities/countries            │
     │  → Fail-open: returns unfiltered if validation fails      │
@@ -60,9 +60,9 @@ FULL PIPELINE (executed per user query):
     └─────────────────────────────────────────────────────────────┘
 
 API KEYS:
-    Prompted once in the terminal at startup and stored in session state.
-    Never hardcoded. Can also be pre-set as environment variables:
-      GEMINI_API_KEY        — from aistudio.google.com/app/apikey (free)
+    Loaded from Streamlit secrets or environment variables:
+      HF_TOKEN              — from huggingface.co/settings/tokens
+      HF_MODEL              — optional Hugging Face chat-completion model
       TRIPADVISOR_API_KEY   — from tripadvisor.com/developers
 """
 
@@ -112,13 +112,16 @@ def get_secret(name: str) -> str:
     return value or os.getenv(name, "") or get_project_secret(name)
 
 
-if "gemini_key" not in st.session_state:
-    st.session_state["gemini_key"] = get_secret("GEMINI_API_KEY")
+if "hf_key" not in st.session_state:
+    st.session_state["hf_key"] = get_secret("HF_TOKEN") or get_secret("HUGGINGFACE_HUB_TOKEN")
+if "hf_model" not in st.session_state:
+    st.session_state["hf_model"] = get_secret("HF_MODEL") or "Qwen/Qwen2.5-7B-Instruct-1M:fastest"
 if "ta_key" not in st.session_state:
     st.session_state["ta_key"] = get_secret("TRIPADVISOR_API_KEY")
 
 # Shorthand references used throughout this file
-GEMINI_KEY = st.session_state["gemini_key"]
+HF_KEY     = st.session_state["hf_key"]
+HF_MODEL   = st.session_state["hf_model"]
 TA_KEY     = st.session_state["ta_key"]
 
 # ── Module imports ─────────────────────────────────────────────────────────────
@@ -126,7 +129,7 @@ TA_KEY     = st.session_state["ta_key"]
 # from interfering with the Streamlit page config call.
 from frontend.components import render_css, render_hero, render_filters, render_cards
 from api_handler.tripadvisor import fetch_all_spots
-from api_handler.gemini import parse_intent, validate_locations
+from api_handler.huggingface import parse_intent, validate_locations
 from ml_model.sentiment import analyze_reviews
 from ml_model.gem_detector import rank_places
 from utils.helpers import esc
@@ -201,8 +204,8 @@ with c3:
 if send and user_input.strip():
 
     # Validate keys before doing any API work
-    if not GEMINI_KEY:
-        st.markdown('<div class="serr">🔑 Gemini key missing. Restart the app.</div>', unsafe_allow_html=True)
+    if not HF_KEY:
+        st.markdown('<div class="serr">🔑 Hugging Face token missing. Add HF_TOKEN to Streamlit secrets.</div>', unsafe_allow_html=True)
         st.stop()
     if not TA_KEY:
         st.markdown('<div class="serr">🔑 TripAdvisor key missing. Restart the app.</div>', unsafe_allow_html=True)
@@ -215,13 +218,13 @@ if send and user_input.strip():
     st.markdown(f'<div class="user-bubble">{esc(user_msg)}</div>', unsafe_allow_html=True)
     st.markdown('<div class="assistant-label">✦ WANDR GUIDE</div>', unsafe_allow_html=True)
 
-    # ── STEP 1: Gemini intent parsing ──────────────────────────────────────────
+    # ── STEP 1: Hugging Face intent parsing ────────────────────────────────────
     with st.spinner("🤖 Understanding your request..."):
-        params, narrative, gemini_err = parse_intent(st.session_state.messages, GEMINI_KEY)
+        params, narrative, ai_err = parse_intent(st.session_state.messages, HF_KEY, HF_MODEL)
 
-    if gemini_err:
-        st.markdown(f'<div class="serr">❌ {esc(gemini_err)}</div>', unsafe_allow_html=True)
-        st.session_state.messages.append({"role": "assistant", "content": "", "error": gemini_err})
+    if ai_err:
+        st.markdown(f'<div class="serr">❌ {esc(ai_err)}</div>', unsafe_allow_html=True)
+        st.session_state.messages.append({"role": "assistant", "content": "", "error": ai_err})
         st.stop()
 
     # Display the AI-generated destination narrative
@@ -254,9 +257,9 @@ if send and user_input.strip():
         st.session_state.messages.append({"role": "assistant", "content": narrative, "error": err})
         st.stop()
 
-    # ── STEP 3: Gemini location validation ─────────────────────────────────────
+    # ── STEP 3: Hugging Face location validation ───────────────────────────────
     with st.spinner(f"✅ Verifying results are actually in {loc}..."):
-        spots = validate_locations(loc, spots, GEMINI_KEY)
+        spots = validate_locations(loc, spots, HF_KEY, HF_MODEL)
 
     # ── STEP 4: ML sentiment analysis ──────────────────────────────────────────
     with st.spinner("🧠 Analysing reviews with ML sentiment model..."):
