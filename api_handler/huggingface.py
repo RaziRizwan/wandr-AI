@@ -144,13 +144,41 @@ FOOD_TERMS = {
 HOTEL_TERMS = {"hotel", "hotels", "lodging", "stay", "resort", "hostel"}
 NATURE_TERMS = {
     "nature", "park", "parks", "beach", "garden", "gardens", "lake",
-    "mountain", "forest", "waterfall", "outdoor", "scenic",
+    "mountain", "mountains", "valley", "valleys", "forest", "waterfall",
+    "outdoor", "scenic", "meadow", "meadows", "national park",
 }
 
 FOOD_NEGATIVE_TERMS = {
     "fort", "mosque", "museum", "tour", "guided", "airport", "park",
     "garden", "mall", "landmark", "monument", "temple", "church", "hotel",
     "resort", "hostel", "spa", "zoo", "tomb", "palace", "gate",
+}
+
+PLACE_NEGATIVE_TERMS = {
+    "hotel", "resort", "hostel", "inn", "tour", "tours", "guided",
+    "travel", "travels", "expedition", "expeditions", "airport",
+}
+
+NORTHERN_PAKISTAN_REQUEST_TERMS = {
+    "northern areas", "northern area", "north pakistan", "northern pakistan",
+    "north of pakistan", "gilgit baltistan", "gilgit-baltistan",
+}
+
+NORTHERN_PAKISTAN_TERMS = {
+    "gilgit", "gilgit-baltistan", "gilgit baltistan", "baltistan", "hunza",
+    "skardu", "naran", "kaghan", "swat", "kalam", "chitral", "kumrat",
+    "deosai", "fairy meadows", "khunjerab", "passu", "attabad", "rakaposhi",
+    "naltar", "shogran", "siri paye", "neelum", "azad kashmir", "ajk",
+    "muzaffarabad", "murree", "nathia gali", "nathiagali", "ayubia",
+    "malam jabba", "dir", "karakoram", "himalaya", "himalayan",
+    "k2", "babusar", "batakundi", "ali abad", "aliabad", "gulmit",
+    "khaplu", "kachura", "shigar", "astore", "rama",
+}
+
+NON_NORTHERN_PAKISTAN_TERMS = {
+    "sindh", "karachi", "hyderabad", "thatta", "mohenjo", "moenjodaro",
+    "lahore", "multan", "faisalabad", "bahawalpur", "balochistan",
+    "quetta", "gwadar", "makran", "punjab", "thar",
 }
 
 
@@ -233,7 +261,24 @@ def parse_intent(messages: list, api_key: str, model: str = DEFAULT_MODEL) -> tu
     narrative = re.sub(r"<search>.*?</search>", "", text, flags=re.DOTALL).strip()
     if not params:
         return None, "", "Hugging Face could not parse the travel query. Try mentioning a city explicitly."
+    params = normalize_regional_intent(params, messages[-1].get("content", ""))
     return params, narrative, None
+
+
+def normalize_regional_intent(params: dict, user_text: str) -> dict:
+    """
+    Correct broad regional phrases that chat models often collapse to one city.
+
+    Example: "northern areas to visit in Pakistan" should not become Murree
+    only. It should stay a northern-Pakistan regional search.
+    """
+    query_text = f"{user_text} {params.get('query', '')} {params.get('location', '')}".lower()
+    if any(term in query_text for term in NORTHERN_PAKISTAN_REQUEST_TERMS):
+        params = dict(params)
+        params["location"] = "Northern Pakistan, Pakistan"
+        if not any(term in params.get("query", "").lower() for term in FOOD_TERMS | HOTEL_TERMS):
+            params["query"] = "scenic valleys and mountain attractions"
+    return params
 
 
 def plan_search_queries(
@@ -252,7 +297,7 @@ def plan_search_queries(
     base_query = (params or {}).get("query", "tourist attractions").strip()
     location = (params or {}).get("location", "").strip()
     requested_category = infer_requested_category(params)
-    fallback = _fallback_search_queries(base_query)
+    fallback = _fallback_search_queries(base_query, location)
 
     text, err = _chat(
         api_key,
@@ -297,12 +342,25 @@ def plan_search_queries(
     return queries
 
 
-def _fallback_search_queries(base_query: str) -> list[str]:
+def _fallback_search_queries(base_query: str, location: str = "") -> list[str]:
     normalized = base_query.lower()
+    location_normalized = location.lower()
     queries = [
         base_query,
         f"hidden gems {base_query}",
     ]
+    if is_northern_pakistan_scope(location_normalized):
+        queries.extend([
+            "Hunza Valley",
+            "Skardu attractions",
+            "Gilgit Baltistan scenic places",
+            "Naran Kaghan valley",
+            "Swat Valley",
+            "Kumrat Valley",
+            "Deosai National Park",
+            "Fairy Meadows",
+        ])
+        return queries
     if any(term in normalized for term in [
         "food", "restaurant", "cafe", "street", "dining", "market", "bakery",
         "breakfast", "lunch", "dinner", "dessert",
@@ -361,6 +419,14 @@ def infer_requested_category(params: dict) -> str:
     return "attraction"
 
 
+def is_northern_pakistan_scope(location: str) -> bool:
+    normalized = location.lower()
+    return any(term in normalized for term in [
+        "northern pakistan", "northern areas", "gilgit", "baltistan", "hunza",
+        "skardu", "swat", "naran", "kaghan", "kashmir",
+    ])
+
+
 def _spot_text(spot: dict) -> str:
     parts = [
         spot.get("name", ""),
@@ -399,9 +465,13 @@ def _deterministic_category_match(spot: dict, requested_category: str) -> bool:
         return cat == "hotels" or any(term in text for term in HOTEL_TERMS)
 
     if requested_category == "nature":
+        if any(term in text for term in PLACE_NEGATIVE_TERMS):
+            return False
         return cat == "geos" or any(term in subs or term in text for term in NATURE_TERMS)
 
     if requested_category == "attraction":
+        if any(term in text for term in PLACE_NEGATIVE_TERMS):
+            return False
         return cat in {"attractions", "geos"} and cat != "restaurants"
 
     return True
@@ -493,13 +563,17 @@ def validate_locations(
     if not spots:
         return spots
 
+    deterministic_spots = filter_by_location_scope(requested_location, spots)
+    if not deterministic_spots:
+        return []
+
     place_payload = [
         {
             "location_id": s.get("location_id", ""),
             "name": s.get("name", ""),
             "address": s.get("address", ""),
         }
-        for s in spots
+        for s in deterministic_spots
     ]
     user_prompt = (
         f"Requested location: {requested_location}\n\n"
@@ -516,16 +590,50 @@ def validate_locations(
         temperature=0,
     )
     if err:
-        return spots
+        return deterministic_spots
 
     try:
         clean_text = re.sub(r"```json|```", "", text).strip()
         array_match = re.search(r"\[.*\]", clean_text, re.DOTALL)
         valid_ids = set(json.loads(array_match.group(0) if array_match else clean_text))
     except Exception:
-        return spots
+        return deterministic_spots
 
-    return [s for s in spots if s.get("location_id") in valid_ids]
+    return [s for s in deterministic_spots if s.get("location_id") in valid_ids]
+
+
+def filter_by_location_scope(requested_location: str, spots: list) -> list:
+    """
+    Deterministically reject impossible geography before LLM validation.
+
+    This prevents regional Pakistan searches from returning India, Vietnam, or
+    non-northern Pakistani provinces when TripAdvisor search is noisy.
+    """
+    requested = requested_location.lower()
+    if is_northern_pakistan_scope(requested):
+        return [s for s in spots if _is_northern_pakistan_spot(s)]
+    if "pakistan" in requested:
+        return [s for s in spots if "pakistan" in _location_text(s)]
+    return spots
+
+
+def _location_text(spot: dict) -> str:
+    parts = [
+        spot.get("name", ""),
+        spot.get("address", ""),
+        spot.get("description", ""),
+        " ".join(spot.get("subcategories", []) or []),
+    ]
+    return " ".join(str(part).lower() for part in parts if part)
+
+
+def _is_northern_pakistan_spot(spot: dict) -> bool:
+    text = _location_text(spot)
+    if "pakistan" not in text:
+        return False
+    if any(term in text for term in NON_NORTHERN_PAKISTAN_TERMS):
+        return False
+    return any(term in text for term in NORTHERN_PAKISTAN_TERMS)
 
 
 def audit_sentiments(
