@@ -73,6 +73,10 @@ Rules:
 - Include the original intent first.
 - Add variants for hidden gems, local favorites, neighborhoods, culture,
   food, nature, attractions, and underrated places where relevant.
+- Preserve the requested category strictly. If the user asked for food, every
+  query must be food/restaurant/cafe/market related. If they asked for hotels,
+  every query must be lodging related. If they asked for nature, every query
+  must be nature/outdoor related.
 - Do not include the city/country in each query; the app appends location.
 - Do not invent place names.
 """
@@ -103,6 +107,51 @@ Rules:
 - Be conservative. Mixed praise and complaints should be Mixed.
 - Do not include explanations or markdown.
 """
+
+
+CATEGORY_AUDIT_SYSTEM = """You are a strict travel-result category auditor.
+
+You receive:
+1. The user's requested intent category
+2. A JSON list of TripAdvisor places with location_id, name, category, cuisine,
+   subcategories, address, description, and review snippets.
+
+Return ONLY a valid JSON array of location_ids that match the requested intent.
+
+Strict rules:
+- If requested intent is food, include ONLY restaurants, cafes, bakeries, food
+  markets, street-food places, dessert shops, bars, or clearly food-focused
+  listings. Exclude landmarks, hotels, tours, mosques, forts, museums, parks,
+  shops, and generic attractions even if they are popular.
+- If requested intent is hotel, include ONLY lodging/hotels.
+- If requested intent is nature, include ONLY parks, gardens, beaches, lakes,
+  mountains, forests, waterfalls, outdoor scenic places, and nature attractions.
+- If requested intent is attraction/culture/history, include ONLY relevant
+  attractions and exclude unrelated restaurants/hotels unless the user asked
+  for food or lodging.
+- Be strict. If unsure, exclude it.
+"""
+
+
+FOOD_TERMS = {
+    "food", "restaurant", "restaurants", "cafe", "cafes", "coffee", "bar",
+    "bars", "bistro", "grill", "pizza", "bakery", "bakeries", "dining",
+    "street food", "food market", "food markets", "dessert", "breakfast", "lunch",
+    "dinner", "eat", "eats", "cuisine", "tea", "rooftop cafe",
+    "dhaba", "bbq", "barbecue", "kitchen", "tandoor", "biryani", "burger",
+    "shawarma", "sweets", "ice cream", "snacks",
+}
+HOTEL_TERMS = {"hotel", "hotels", "lodging", "stay", "resort", "hostel"}
+NATURE_TERMS = {
+    "nature", "park", "parks", "beach", "garden", "gardens", "lake",
+    "mountain", "forest", "waterfall", "outdoor", "scenic",
+}
+
+FOOD_NEGATIVE_TERMS = {
+    "fort", "mosque", "museum", "tour", "guided", "airport", "park",
+    "garden", "mall", "landmark", "monument", "temple", "church", "hotel",
+    "resort", "hostel", "spa", "zoo", "tomb", "palace", "gate",
+}
 
 
 def _chat(
@@ -202,6 +251,7 @@ def plan_search_queries(
     """
     base_query = (params or {}).get("query", "tourist attractions").strip()
     location = (params or {}).get("location", "").strip()
+    requested_category = infer_requested_category(params)
     fallback = _fallback_search_queries(base_query)
 
     text, err = _chat(
@@ -234,12 +284,16 @@ def plan_search_queries(
     queries = []
     seen = set()
     for query in [base_query, *candidates, *fallback]:
+        if not _query_matches_requested_category(query, requested_category):
+            continue
         normalized = re.sub(r"\s+", " ", query.strip()).lower()
         if normalized and normalized not in seen:
             seen.add(normalized)
             queries.append(query.strip())
         if len(queries) >= max_queries:
             break
+    if not queries:
+        queries = fallback[:max_queries]
     return queries
 
 
@@ -248,15 +302,15 @@ def _fallback_search_queries(base_query: str) -> list[str]:
     queries = [
         base_query,
         f"hidden gems {base_query}",
-        "local favorites",
-        "things to do",
     ]
     if any(term in normalized for term in [
         "food", "restaurant", "cafe", "street", "dining", "market", "bakery",
         "breakfast", "lunch", "dinner", "dessert",
     ]):
         queries.extend([
+            "local food favorites",
             "local restaurants",
+            "street food",
             "food markets",
             "traditional food",
             "cafes",
@@ -281,6 +335,146 @@ def _fallback_search_queries(base_query: str) -> list[str]:
             "landmarks",
         ])
     return queries
+
+
+def _query_matches_requested_category(query: str, requested_category: str) -> bool:
+    normalized = query.lower()
+    if requested_category == "food":
+        return any(term in normalized for term in FOOD_TERMS)
+    if requested_category == "hotel":
+        return any(term in normalized for term in HOTEL_TERMS)
+    if requested_category == "nature":
+        return any(term in normalized for term in NATURE_TERMS)
+    if requested_category == "attraction":
+        return not any(term in normalized for term in FOOD_TERMS | HOTEL_TERMS)
+    return True
+
+
+def infer_requested_category(params: dict) -> str:
+    query = (params or {}).get("query", "").lower()
+    if any(term in query for term in FOOD_TERMS):
+        return "food"
+    if any(term in query for term in HOTEL_TERMS):
+        return "hotel"
+    if any(term in query for term in NATURE_TERMS):
+        return "nature"
+    return "attraction"
+
+
+def _spot_text(spot: dict) -> str:
+    parts = [
+        spot.get("name", ""),
+        spot.get("category", ""),
+        spot.get("cuisine", ""),
+        spot.get("description", ""),
+        " ".join(spot.get("subcategories", []) or []),
+    ]
+    return " ".join(str(part).lower() for part in parts if part)
+
+
+def _deterministic_category_match(spot: dict, requested_category: str) -> bool:
+    cat = str(spot.get("category", "")).lower()
+    cuisine = str(spot.get("cuisine", "")).lower()
+    text = _spot_text(spot)
+    subs = " ".join(str(s).lower() for s in (spot.get("subcategories", []) or []))
+
+    if requested_category == "food":
+        if any(term in text for term in ["tour", "guided", "sightseeing"]):
+            return False
+        if cat == "restaurants":
+            return True
+        if cuisine:
+            return True
+        has_food_signal = any(term in text for term in FOOD_TERMS)
+        food_place_name = any(term in str(spot.get("name", "")).lower() for term in [
+            "food", "restaurant", "cafe", "barbecue", "bbq", "kitchen",
+            "bakery", "sweets", "biryani", "burger", "dhaba",
+        ])
+        has_negative_signal = any(term in text for term in FOOD_NEGATIVE_TERMS)
+        if food_place_name:
+            return True
+        return has_food_signal and not has_negative_signal
+
+    if requested_category == "hotel":
+        return cat == "hotels" or any(term in text for term in HOTEL_TERMS)
+
+    if requested_category == "nature":
+        return cat == "geos" or any(term in subs or term in text for term in NATURE_TERMS)
+
+    if requested_category == "attraction":
+        return cat in {"attractions", "geos"} and cat != "restaurants"
+
+    return True
+
+
+def filter_by_requested_category(
+    params: dict,
+    spots: list,
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+) -> list:
+    """
+    Strictly keep only places matching the user's requested category.
+
+    Deterministic category rules run first. Hugging Face then audits the
+    remaining candidate set for stricter semantic matching.
+    """
+    if not spots:
+        return spots
+
+    requested_category = infer_requested_category(params)
+    deterministic = [
+        spot for spot in spots
+        if _deterministic_category_match(spot, requested_category)
+    ]
+    if not deterministic:
+        return []
+
+    audit_payload = [
+        {
+            "location_id": s.get("location_id", ""),
+            "name": s.get("name", ""),
+            "category": s.get("category", ""),
+            "cuisine": s.get("cuisine", ""),
+            "subcategories": s.get("subcategories", []),
+            "address": s.get("address", ""),
+            "description": s.get("description", ""),
+            "reviews": [
+                str(r.get("text", ""))[:220]
+                for r in s.get("raw_reviews", [])[:2]
+                if r.get("text")
+            ],
+        }
+        for s in deterministic[:36]
+    ]
+
+    text, err = _chat(
+        api_key,
+        model,
+        [
+            {"role": "system", "content": CATEGORY_AUDIT_SYSTEM},
+            {
+                "role": "user",
+                "content": json.dumps({
+                    "requested_category": requested_category,
+                    "places": audit_payload,
+                }, ensure_ascii=False),
+            },
+        ],
+        max_tokens=600,
+        temperature=0,
+    )
+    if err:
+        return deterministic
+
+    try:
+        clean_text = re.sub(r"```json|```", "", text).strip()
+        array_match = re.search(r"\[.*\]", clean_text, re.DOTALL)
+        valid_ids = set(json.loads(array_match.group(0) if array_match else clean_text))
+    except Exception:
+        return deterministic
+
+    return [s for s in deterministic if s.get("location_id") in valid_ids]
 
 
 def validate_locations(

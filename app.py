@@ -131,6 +131,7 @@ from frontend.components import render_css, render_hero, render_filters, render_
 from api_handler.tripadvisor import fetch_supervised_spots
 from api_handler.huggingface import (
     audit_sentiments,
+    filter_by_requested_category,
     parse_intent,
     plan_search_queries,
     validate_locations,
@@ -273,6 +274,15 @@ if send and user_input.strip():
     if not spots:
         err = f"No verified results found inside {loc}. Try a broader query."
         st.markdown(f'<div class="swarn">🗺 {err}</div>', unsafe_allow_html=True)
+        st.session_state.messages.append({"role": "assistant", "content": narrative, "error": err})
+        st.stop()
+
+    with st.spinner("✅ Filtering results to match your exact request..."):
+        spots = filter_by_requested_category(params, spots, HF_KEY, HF_MODEL)
+
+    if not spots:
+        err = "No results matched the requested category after strict filtering. Try a broader category."
+        st.markdown(f'<div class="swarn">🔍 {err}</div>', unsafe_allow_html=True)
         st.session_state.messages.append({"role": "assistant", "content": narrative, "error": err})
         st.stop()
 
