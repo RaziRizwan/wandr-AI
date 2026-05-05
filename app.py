@@ -115,7 +115,7 @@ def get_secret(name: str) -> str:
 if "hf_key" not in st.session_state:
     st.session_state["hf_key"] = get_secret("HF_TOKEN") or get_secret("HUGGINGFACE_HUB_TOKEN")
 if "hf_model" not in st.session_state:
-    st.session_state["hf_model"] = get_secret("HF_MODEL") or "Qwen/Qwen2.5-7B-Instruct-1M:fastest"
+    st.session_state["hf_model"] = get_secret("HF_MODEL") or "openai/gpt-oss-20b:fastest"
 if "ta_key" not in st.session_state:
     st.session_state["ta_key"] = get_secret("TRIPADVISOR_API_KEY")
 

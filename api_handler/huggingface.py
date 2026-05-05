@@ -19,7 +19,7 @@ import re
 import requests
 
 
-DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct-1M:fastest"
+DEFAULT_MODEL = "openai/gpt-oss-20b:fastest"
 ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
 
 
@@ -90,7 +90,13 @@ def _chat(
     if resp.status_code == 429:
         return "", "Hugging Face rate limit hit. Wait a moment and retry."
     if resp.status_code >= 400:
-        return "", f"Hugging Face API error (HTTP {resp.status_code})."
+        detail = ""
+        try:
+            detail = resp.json().get("error", {}).get("message", "")
+        except Exception:
+            detail = resp.text[:240]
+        suffix = f" {detail}" if detail else ""
+        return "", f"Hugging Face API error (HTTP {resp.status_code}).{suffix}"
 
     try:
         data = resp.json()
