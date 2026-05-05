@@ -1,6 +1,6 @@
 streamlit
-python-dotenv
 google-generativeai
 requests
 numpy
+torch
 transformers

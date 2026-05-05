@@ -117,6 +117,35 @@ html, body, [class*="css"] {
 }
 .stApp { background-color: #f8f9fa !important; }
 
+/* Native Streamlit text can inherit white from the active app theme.
+   Keep Streamlit-generated markdown/widget text dark while custom UI classes
+   below keep their own explicit colours. */
+[data-testid="stMarkdownContainer"] > p,
+[data-testid="stMarkdownContainer"] > ul,
+[data-testid="stMarkdownContainer"] > ol,
+[data-testid="stMarkdownContainer"] > div:not([class]),
+[data-testid="stMarkdownContainer"] > h1,
+[data-testid="stMarkdownContainer"] > h2,
+[data-testid="stMarkdownContainer"] > h3,
+[data-testid="stMarkdownContainer"] > h4,
+[data-testid="stMarkdownContainer"] > h5,
+[data-testid="stMarkdownContainer"] > h6,
+[data-testid="stMarkdownContainer"] > blockquote,
+[data-testid="stMarkdownContainer"] > pre,
+[data-testid="stMarkdownContainer"] > code,
+[data-testid="stText"],
+[data-testid="stCaptionContainer"],
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] > p {
+    color: #1a1a2e !important;
+}
+
+[data-testid="stMarkdownContainer"] > p a,
+[data-testid="stMarkdownContainer"] > ul a,
+[data-testid="stMarkdownContainer"] > ol a {
+    color: #1d4ed8 !important;
+}
+
 /* Hide Streamlit chrome (menu, footer, header) */
 #MainMenu, footer, header { visibility: hidden; }
 

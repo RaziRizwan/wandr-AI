@@ -68,10 +68,7 @@ API KEYS:
 
 import os
 import sys
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
+import tomllib
 
 # ── Python path fix ────────────────────────────────────────────────────────────
 # Ensures all submodules (frontend/, api_handler/, ml_model/, utils/) are
@@ -94,25 +91,31 @@ st.set_page_config(
 )
 
 # ── API Key management ─────────────────────────────────────────────────────────
-# Keys are stored in st.session_state after the first prompt so they survive
-# Streamlit reruns (which re-execute the entire script on every interaction).
-# Without session_state, the terminal would prompt for keys on every button click.
+def get_project_secret(name: str) -> str:
+    secrets_path = os.path.join(ROOT, ".streamlit", "secrets.toml")
+    if not os.path.exists(secrets_path):
+        return ""
+    try:
+        with open(secrets_path, "rb") as f:
+            content = f.read().decode("utf-8-sig")
+        return str(tomllib.loads(content).get(name, ""))
+    except Exception:
+        return ""
+
+
+def get_secret(name: str) -> str:
+    """Read API keys from Streamlit, env vars, or this project's secrets file."""
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return value or os.getenv(name, "") or get_project_secret(name)
+
+
 if "gemini_key" not in st.session_state:
-    st.session_state["gemini_key"] = os.getenv("GEMINI_API_KEY", "")
+    st.session_state["gemini_key"] = get_secret("GEMINI_API_KEY")
 if "ta_key" not in st.session_state:
-    st.session_state["ta_key"] = os.getenv("TRIPADVISOR_API_KEY", "")
-
-# Prompt in terminal only if not already set (first run only)
-if not st.session_state["gemini_key"]:
-    st.session_state["gemini_key"] = input(
-        "\n🤖 Gemini API key (aistudio.google.com/app/apikey): "
-    ).strip()
-
-if not st.session_state["ta_key"]:
-    st.session_state["ta_key"] = input(
-        "🧳 TripAdvisor API key (tripadvisor.com/developers): "
-    ).strip()
-    print("\n✅ Keys saved. Opening Wandr in browser...\n")
+    st.session_state["ta_key"] = get_secret("TRIPADVISOR_API_KEY")
 
 # Shorthand references used throughout this file
 GEMINI_KEY = st.session_state["gemini_key"]
