@@ -132,6 +132,7 @@ from api_handler.tripadvisor import fetch_supervised_spots
 from api_handler.huggingface import (
     audit_sentiments,
     filter_by_requested_category,
+    is_broad_scope,
     parse_intent,
     plan_search_queries,
     validate_locations,
@@ -247,13 +248,17 @@ if send and user_input.strip():
     with st.spinner(f"📍 Planning a broader search for {loc}..."):
         search_queries = plan_search_queries(params, HF_KEY, HF_MODEL)
 
+    broad_scope = is_broad_scope(loc)
+    max_results_per_query = 6 if broad_scope else 8
+    max_candidates = 18 if broad_scope else 24
+
     with st.spinner(f"📍 Finding more possible gems in {loc}..."):
         spots, ta_err = fetch_supervised_spots(
             queries=search_queries,
             location=loc,
             api_key=TA_KEY,
-            max_results_per_query=10,
-            max_candidates=36,
+            max_results_per_query=max_results_per_query,
+            max_candidates=max_candidates,
         )
 
     if ta_err:
@@ -329,12 +334,12 @@ if send and user_input.strip():
 if not st.session_state.messages:
     st.markdown('<p class="chip-label">✦ start your adventure</p>', unsafe_allow_html=True)
     chips = [
-        "🗼 Paris highlights",
+        "🗼 Paris Night out",
         "🍜 Bangkok street food",
         "🏯 Kyoto hidden gems",
         "🌊 Best beaches in Bali",
         "🕌 Things to do in Karachi",
-        "🌮 Mexico City food scene",
+        "🌮 Istanbul food scene",
     ]
     cols = st.columns(3)
     for i, chip in enumerate(chips):

@@ -44,6 +44,10 @@ BASE = "https://api.content.tripadvisor.com/api/v1"
 HEADERS = {"accept": "application/json"}
 
 
+class TripAdvisorRateLimitError(Exception):
+    """Raised when TripAdvisor rejects detail/photo/review calls for quota."""
+
+
 def _get(endpoint: str, params: dict, timeout: int = 8) -> dict:
     """
     Internal helper: perform a GET request to a TripAdvisor endpoint.
@@ -66,7 +70,14 @@ def _get(endpoint: str, params: dict, timeout: int = 8) -> dict:
             headers=HEADERS,
             timeout=timeout,
         )
+        if r.status_code == 429:
+            raise TripAdvisorRateLimitError(
+                "TripAdvisor detail/photo/review quota is exhausted. "
+                "Wait for the quota to reset or use a key with available quota."
+            )
         return r.json() if r.status_code == 200 else {}
+    except TripAdvisorRateLimitError:
+        raise
     except Exception:
         return {}
 
@@ -266,7 +277,8 @@ def fetch_all_spots(
 
     # Step 2: Fetch full details for each location in parallel (6 workers)
     spots = []
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    first_error = None
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {
             ex.submit(fetch_spot_details, r, api_key, location): r
             for r in results
@@ -274,10 +286,14 @@ def fetch_all_spots(
         for future in as_completed(futures):
             try:
                 spots.append(future.result())
+            except TripAdvisorRateLimitError as e:
+                first_error = str(e)
             except Exception:
                 # Skip any spot that fails — don't crash the whole result set
                 pass
 
+    if first_error and not spots:
+        return None, first_error
     return spots, None
 
 
@@ -326,7 +342,7 @@ def fetch_supervised_spots(
         return (None, first_error) if first_error else ([], None)
 
     spots = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futures = {
             ex.submit(fetch_spot_details, r, api_key, location): r
             for r in deduped_results.values()
@@ -334,7 +350,11 @@ def fetch_supervised_spots(
         for future in as_completed(futures):
             try:
                 spots.append(future.result())
+            except TripAdvisorRateLimitError as e:
+                first_error = str(e)
             except Exception:
                 pass
 
+    if first_error and not spots:
+        return None, first_error
     return spots, None

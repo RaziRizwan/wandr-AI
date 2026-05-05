@@ -28,29 +28,41 @@ INTENT_SYSTEM = """You are Wandr, an expert travel guide AI assistant.
 For every user message, extract the travel search intent and respond with:
 
 1. A structured search block (ALWAYS first, ALWAYS present):
-   <search>{"query": "specific place type", "location": "City, Country"}</search>
+   <search>{"query": "specific place type", "location": "requested geographic scope"}</search>
 
 2. Then 2-3 vivid, enthusiastic sentences about the destination.
 
 Rules:
 - query must be SPECIFIC: "rooftop cafes", "street food stalls", "historic mosques", "night markets"
-- location must include country: "Karachi, Pakistan" - never just "Karachi"
+- location is the user's requested geographic scope. It may be a city,
+  region, country, continent, island, mountain range, or abstract travel area.
+- Preserve broad scopes instead of narrowing them. Examples:
+  "castles across Europe" -> {"query": "castles", "location": "Europe"}
+  "beaches in Southeast Asia" -> {"query": "beaches", "location": "Southeast Asia"}
+  "northern areas to visit in Pakistan" -> {"query": "scenic valleys and mountain attractions", "location": "Northern Pakistan, Pakistan"}
+- For a city, include country: "Karachi, Pakistan" - never just "Karachi"
 - The <search> block must be valid JSON
 - Never add text before the <search> block
-- If location is unclear, make your best guess based on context
+- If the user gives a broad place, keep it broad. Do not substitute a famous
+  city, capital, or nearby tourist hub unless the user asked for that city.
+- If no place is stated or clearly implied, use an empty location string.
 """
 
 
 VALIDATION_SYSTEM = """You are a strict geographic location validator for a travel app.
 
 You will receive:
-1. A requested location, such as "Karachi, Pakistan"
+1. A requested location, such as "Karachi, Pakistan", "Europe", or
+   "Northern Pakistan, Pakistan"
 2. A JSON list of places, each with location_id, name, and address
 
 Your task:
-- Include only places genuinely in or immediately adjacent to the requested location
-- Exclude places in different cities, regions, or countries
-- Be strict: wrong-country results must be excluded
+- Include only places genuinely inside the requested geographic scope.
+- For a city/locality, allow only that city or immediately adjacent places.
+- For a region, country, or continent, allow results anywhere inside that
+  broader scope and do not collapse validation to one city.
+- Exclude places in unrelated cities, regions, countries, or continents.
+- Be strict: wrong-country or wrong-continent results must be excluded.
 
 Return ONLY a valid JSON array of approved location_ids.
 Example: ["12345678", "87654321"]
@@ -62,10 +74,10 @@ Do not include any other text or explanation.
 SEARCH_PLAN_SYSTEM = """You are the search supervisor for Wandr.
 
 You receive a user's parsed travel intent:
-{"query": "...", "location": "City, Country"}
+{"query": "...", "location": "requested geographic scope"}
 
 Generate 6 to 8 diverse TripAdvisor search queries that will uncover both
-popular results and hidden gems in that exact destination.
+popular results and hidden gems in that exact destination or region.
 
 Rules:
 - Return ONLY a valid JSON array of query strings.
@@ -73,11 +85,17 @@ Rules:
 - Include the original intent first.
 - Add variants for hidden gems, local favorites, neighborhoods, culture,
   food, nature, attractions, and underrated places where relevant.
+- If location is broad, such as Europe, Asia, a whole country, or a large
+  region, diversify across representative subregions/countries in the query
+  text. Example for "castles" in "Europe": "castles France", "castles Germany",
+  "castles Czech Republic", "castles Romania".
 - Preserve the requested category strictly. If the user asked for food, every
   query must be food/restaurant/cafe/market related. If they asked for hotels,
   every query must be lodging related. If they asked for nature, every query
   must be nature/outdoor related.
-- Do not include the city/country in each query; the app appends location.
+- For city-level searches, do not include the city/country in each query; the
+  app appends location. For broad regional searches, country/subregion words
+  may be included to spread results intelligently.
 - Do not invent place names.
 """
 
@@ -181,6 +199,43 @@ NON_NORTHERN_PAKISTAN_TERMS = {
     "quetta", "gwadar", "makran", "punjab", "thar",
 }
 
+BROAD_SCOPE_PATTERNS = {
+    "Eastern Europe": [r"\beastern europe\b"],
+    "Western Europe": [r"\bwestern europe\b"],
+    "Central Europe": [r"\bcentral europe\b"],
+    "Southern Europe": [r"\bsouthern europe\b"],
+    "Northern Europe": [r"\bnorthern europe\b"],
+    "North America": [r"\bnorth america\b"],
+    "South America": [r"\bsouth america\b"],
+    "Southeast Asia": [r"\bsoutheast asia\b"],
+    "Middle East": [r"\bmiddle east\b"],
+    "Scandinavia": [r"\bscandinavia\b"],
+    "Balkans": [r"\bbalkans\b"],
+    "Europe": [r"\beurope\b"],
+    "Asia": [r"\basia\b"],
+    "Africa": [r"\bafrica\b"],
+    "Oceania": [r"\boceania\b"],
+}
+
+EUROPE_COUNTRY_TERMS = {
+    "albania", "andorra", "austria", "belgium", "bosnia", "bulgaria",
+    "croatia", "cyprus", "czech republic", "czechia", "denmark", "england",
+    "estonia", "finland", "france", "germany", "greece", "hungary",
+    "iceland", "ireland", "italy", "latvia", "lithuania", "luxembourg",
+    "malta", "monaco", "montenegro", "netherlands", "norway", "poland",
+    "portugal", "romania", "scotland", "serbia", "slovakia", "slovenia",
+    "spain", "sweden", "switzerland", "ukraine", "united kingdom", "wales",
+}
+
+EUROPE_CITY_TERMS = {
+    "amsterdam", "athens", "barcelona", "berlin", "bratislava", "brussels",
+    "bucharest", "budapest", "copenhagen", "dubrovnik", "edinburgh",
+    "florence", "krakow", "lisbon", "london", "madrid", "munich", "oslo",
+    "paris", "porto", "prague", "reykjavik", "riga", "rome", "salzburg",
+    "stockholm", "tallinn", "venice", "vienna", "vilnius", "warsaw",
+    "zagreb", "zurich",
+}
+
 
 def _chat(
     api_key: str,
@@ -273,12 +328,25 @@ def normalize_regional_intent(params: dict, user_text: str) -> dict:
     only. It should stay a northern-Pakistan regional search.
     """
     query_text = f"{user_text} {params.get('query', '')} {params.get('location', '')}".lower()
+    explicit_scope = _explicit_broad_scope(user_text)
+    if explicit_scope:
+        params = dict(params)
+        params["location"] = explicit_scope
+
     if any(term in query_text for term in NORTHERN_PAKISTAN_REQUEST_TERMS):
         params = dict(params)
         params["location"] = "Northern Pakistan, Pakistan"
         if not any(term in params.get("query", "").lower() for term in FOOD_TERMS | HOTEL_TERMS):
             params["query"] = "scenic valleys and mountain attractions"
     return params
+
+
+def _explicit_broad_scope(user_text: str) -> str:
+    normalized = user_text.lower()
+    for scope in sorted(BROAD_SCOPE_PATTERNS, key=len, reverse=True):
+        if any(re.search(pattern, normalized) for pattern in BROAD_SCOPE_PATTERNS[scope]):
+            return scope
+    return ""
 
 
 def plan_search_queries(
@@ -326,9 +394,13 @@ def plan_search_queries(
         except Exception:
             candidates = fallback
 
+    query_pool = [base_query, *candidates, *fallback]
+    if is_broad_scope(location):
+        query_pool = [base_query, *fallback, *candidates]
+
     queries = []
     seen = set()
-    for query in [base_query, *candidates, *fallback]:
+    for query in query_pool:
         if not _query_matches_requested_category(query, requested_category):
             continue
         normalized = re.sub(r"\s+", " ", query.strip()).lower()
@@ -349,6 +421,9 @@ def _fallback_search_queries(base_query: str, location: str = "") -> list[str]:
         base_query,
         f"hidden gems {base_query}",
     ]
+    if is_europe_scope(location_normalized):
+        queries.extend(_europe_fallback_queries(normalized))
+        return queries
     if is_northern_pakistan_scope(location_normalized):
         queries.extend([
             "Hunza Valley",
@@ -395,6 +470,43 @@ def _fallback_search_queries(base_query: str, location: str = "") -> list[str]:
     return queries
 
 
+def _europe_fallback_queries(normalized_query: str) -> list[str]:
+    if any(term in normalized_query for term in ["castle", "castles", "fortress", "fortresses"]):
+        return [
+            "castles France",
+            "castles Germany",
+            "castles Czech Republic",
+            "castles Romania",
+            "castles Spain",
+            "castles Portugal",
+            "castles Austria",
+            "castles Scotland",
+        ]
+    if any(term in normalized_query for term in FOOD_TERMS):
+        return [
+            "local food Italy",
+            "food markets Spain",
+            "traditional restaurants France",
+            "cafes Austria",
+            "street food Germany",
+        ]
+    if any(term in normalized_query for term in NATURE_TERMS):
+        return [
+            "national parks Switzerland",
+            "scenic lakes Italy",
+            "mountain attractions Austria",
+            "waterfalls Iceland",
+            "parks Slovenia",
+        ]
+    return [
+        "historic places France",
+        "cultural sites Italy",
+        "landmarks Germany",
+        "museums Netherlands",
+        "old towns Czech Republic",
+    ]
+
+
 def _query_matches_requested_category(query: str, requested_category: str) -> bool:
     normalized = query.lower()
     if requested_category == "food":
@@ -425,6 +537,17 @@ def is_northern_pakistan_scope(location: str) -> bool:
         "northern pakistan", "northern areas", "gilgit", "baltistan", "hunza",
         "skardu", "swat", "naran", "kaghan", "kashmir",
     ])
+
+
+def is_broad_scope(location: str) -> bool:
+    normalized = location.lower().strip()
+    if is_europe_scope(normalized) or is_northern_pakistan_scope(normalized):
+        return True
+    return any(scope.lower() == normalized for scope in BROAD_SCOPE_PATTERNS)
+
+
+def is_europe_scope(location: str) -> bool:
+    return bool(re.search(r"\beurope\b", location.lower()))
 
 
 def _spot_text(spot: dict) -> str:
@@ -610,6 +733,9 @@ def filter_by_location_scope(requested_location: str, spots: list) -> list:
     non-northern Pakistani provinces when TripAdvisor search is noisy.
     """
     requested = requested_location.lower()
+    if is_europe_scope(requested):
+        europe_spots = [s for s in spots if _is_europe_spot(s)]
+        return europe_spots or spots
     if is_northern_pakistan_scope(requested):
         return [s for s in spots if _is_northern_pakistan_spot(s)]
     if "pakistan" in requested:
@@ -634,6 +760,11 @@ def _is_northern_pakistan_spot(spot: dict) -> bool:
     if any(term in text for term in NON_NORTHERN_PAKISTAN_TERMS):
         return False
     return any(term in text for term in NORTHERN_PAKISTAN_TERMS)
+
+
+def _is_europe_spot(spot: dict) -> bool:
+    text = _location_text(spot)
+    return any(term in text for term in EUROPE_COUNTRY_TERMS | EUROPE_CITY_TERMS)
 
 
 def audit_sentiments(
