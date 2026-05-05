@@ -4,6 +4,6 @@
 scenes, landmarks, and local experiences through a clean, card-based interface, removing the friction of manually
 researching travel destinations across multiple platforms.
 
->  Built with Streamlit for the web dashboard, Google Gemini API as the AI backbone for intelligent, context-aware
-destination narration, and the Tripadvisor API for real-time global place data, deployed publicly on Streamlit Cloud with
-a bold, adventure-themed UI designed for anyone to use without technical knowledge.
+>  Built with Streamlit for the web dashboard, Hugging Face Inference Providers as the AI supervisor for intent parsing,
+strict category filtering, location validation, destination narration, and review sentiment auditing, plus the Tripadvisor
+API for real-time global place data. Designed for public Streamlit Cloud deployment with a bold, adventure-themed UI.
