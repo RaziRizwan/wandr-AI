@@ -474,7 +474,8 @@ html, body, [class*="css"] {
 }
 
 /* Buttons */
-.stButton > button {
+.stButton > button,
+[data-testid="stButton"] button {
     background: #ff6b35 !important;
     color: #ffffff !important;
     border: none !important;
@@ -487,11 +488,17 @@ html, body, [class*="css"] {
     box-shadow: 0 2px 8px rgba(255, 107, 53, 0.35) !important;
     transition: transform 0.1s, box-shadow 0.1s !important;
 }
-.stButton > button:hover {
+.stButton > button *,
+[data-testid="stButton"] button * {
+    color: #ffffff !important;
+}
+.stButton > button:hover,
+[data-testid="stButton"] button:hover {
     transform: translateY(-1px) !important;
     box-shadow: 0 4px 14px rgba(255, 107, 53, 0.45) !important;
 }
-.stButton > button:active {
+.stButton > button:active,
+[data-testid="stButton"] button:active {
     transform: translateY(0) !important;
     box-shadow: 0 1px 4px rgba(255, 107, 53, 0.3) !important;
 }
