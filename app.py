@@ -69,6 +69,7 @@ API KEYS:
 import os
 import sys
 import tomllib
+import importlib
 
 # ── Python path fix ────────────────────────────────────────────────────────────
 # Ensures all submodules (frontend/, api_handler/, ml_model/, utils/) are
@@ -127,7 +128,13 @@ TA_KEY     = st.session_state["ta_key"]
 # ── Module imports ─────────────────────────────────────────────────────────────
 # Deferred until after page config and key setup to avoid import errors
 # from interfering with the Streamlit page config call.
-from frontend.components import render_css, render_hero, render_filters, render_cards
+import frontend.components as ui_components
+ui_components = importlib.reload(ui_components)
+render_css = ui_components.render_css
+render_theme_toggle = ui_components.render_theme_toggle
+render_hero = ui_components.render_hero
+render_filters = ui_components.render_filters
+render_cards = ui_components.render_cards
 from api_handler.tripadvisor import fetch_supervised_spots
 from api_handler.huggingface import (
     audit_sentiments,
@@ -142,7 +149,11 @@ from ml_model.gem_detector import rank_places
 from utils.helpers import esc
 
 # ── CSS and Hero ───────────────────────────────────────────────────────────────
-render_css()
+if "theme_mode" not in st.session_state:
+    st.session_state["theme_mode"] = "light"
+
+render_css(st.session_state["theme_mode"])
+render_theme_toggle()
 render_hero()
 
 # ── Session state initialisation ──────────────────────────────────────────────
@@ -150,6 +161,8 @@ render_hero()
 if "messages"    not in st.session_state: st.session_state.messages    = []
 if "last_spots"  not in st.session_state: st.session_state.last_spots  = []
 if "filter_cat"  not in st.session_state: st.session_state.filter_cat  = "All"
+
+search_slot = st.container()
 
 # ── Chat history display ───────────────────────────────────────────────────────
 # Replays all previous messages so the conversation is visible after reruns.
@@ -185,8 +198,9 @@ if st.session_state.last_spots:
     render_cards(filtered)
 
 # ── Input bar ──────────────────────────────────────────────────────────────────
-st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-c1, c2, c3 = st.columns([1, 5, 1])
+with search_slot:
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 5, 1])
 
 with c1:
     # New button: clears the current session for a fresh city search

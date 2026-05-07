@@ -89,7 +89,7 @@ def get_theme(category: str, subcategories: list, cuisine: str) -> tuple:
     return "attr", "🏛️", "Attraction"
 
 
-def render_css() -> None:
+def render_css(theme: str = "light") -> None:
     """
     Inject all global CSS styles into the Streamlit app.
 
@@ -507,6 +507,147 @@ html, body, [class*="css"] {
 .filter-label { font-size: 0.75rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
 </style>
 """, unsafe_allow_html=True)
+
+    if theme == "dark":
+        st.markdown("""
+<style>
+html, body, [class*="css"] {
+    background-color: #101827 !important;
+    color: #f8fafc !important;
+}
+.stApp { background-color: #101827 !important; }
+
+[data-testid="stMarkdownContainer"] > p,
+[data-testid="stMarkdownContainer"] > ul,
+[data-testid="stMarkdownContainer"] > ol,
+[data-testid="stMarkdownContainer"] > div:not([class]),
+[data-testid="stMarkdownContainer"] > h1,
+[data-testid="stMarkdownContainer"] > h2,
+[data-testid="stMarkdownContainer"] > h3,
+[data-testid="stMarkdownContainer"] > h4,
+[data-testid="stMarkdownContainer"] > h5,
+[data-testid="stMarkdownContainer"] > h6,
+[data-testid="stMarkdownContainer"] > blockquote,
+[data-testid="stMarkdownContainer"] > pre,
+[data-testid="stMarkdownContainer"] > code,
+[data-testid="stText"],
+[data-testid="stCaptionContainer"],
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] > p {
+    color: #f8fafc !important;
+}
+
+[data-testid="stMarkdownContainer"] > p a,
+[data-testid="stMarkdownContainer"] > ul a,
+[data-testid="stMarkdownContainer"] > ol a {
+    color: #93c5fd !important;
+}
+
+.hero {
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+}
+
+.user-bubble {
+    background: #e2e8f0;
+    color: #0f172a;
+    box-shadow: 3px 3px 0 #ff6b35;
+}
+
+.wcard {
+    background: #172033;
+    border-color: #334155;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+}
+.wcard:hover {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
+}
+.wcard-addr,
+.wcard-desc,
+.spot-count,
+.filter-label {
+    color: #cbd5e1 !important;
+}
+.chip-label {
+    color: #94a3b8 !important;
+}
+.wpill {
+    border-color: rgba(255, 255, 255, 0.16);
+}
+.wpill-price,
+.ml-score {
+    background: #263449;
+    color: #e2e8f0;
+    border-color: #475569;
+}
+.wpill-ta {
+    background: #e2e8f0;
+    color: #0f172a !important;
+}
+.wpill-ta:hover {
+    background: #f8fafc;
+}
+
+.t-food .wcard-badge,
+.t-food .wcard-review {
+    background: #431d0b;
+    color: #fed7aa;
+}
+.t-food .wcard-name { color: #fdba74; }
+.t-attr .wcard-badge,
+.t-attr .wcard-review {
+    background: #172554;
+    color: #bfdbfe;
+}
+.t-attr .wcard-name { color: #93c5fd; }
+.t-hotel .wcard-badge,
+.t-hotel .wcard-review {
+    background: #2e1065;
+    color: #ddd6fe;
+}
+.t-hotel .wcard-name { color: #c4b5fd; }
+.t-nature .wcard-badge,
+.t-nature .wcard-review {
+    background: #052e16;
+    color: #bbf7d0;
+}
+.t-nature .wcard-name { color: #86efac; }
+
+.stTextInput > div > div > input {
+    background: #172033 !important;
+    border-color: #475569 !important;
+    color: #f8fafc !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24) !important;
+}
+.stTextInput > div > div > input::placeholder {
+    color: #94a3b8 !important;
+}
+
+.serr {
+    background: #450a0a;
+    color: #fecaca;
+    border-color: #b91c1c;
+}
+.swarn {
+    background: #422006;
+    color: #fde68a;
+    border-color: #d97706;
+}
+.divider { border-top-color: #334155; }
+</style>
+""", unsafe_allow_html=True)
+
+
+def render_theme_toggle() -> None:
+    """Render a compact top-right button that switches the app theme."""
+    current = st.session_state.get("theme_mode", "light")
+    next_mode = "light" if current == "dark" else "dark"
+    label = "Light mode" if current == "dark" else "Dark mode"
+
+    _, toggle_col = st.columns([6, 1.25])
+    with toggle_col:
+        if st.button(label, key="theme_mode_toggle", help=f"Switch to {next_mode} mode"):
+            st.session_state["theme_mode"] = next_mode
+            st.rerun()
 
 
 def render_hero() -> None:
