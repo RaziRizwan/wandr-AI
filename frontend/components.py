@@ -512,6 +512,41 @@ html, body, [class*="css"] {
 .chip-label { text-align: center; color: #94a3b8; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin: 1.5rem 0 0.75rem; }
 .spot-count { font-size: 0.78rem; color: #64748b; margin: 4px 0 12px; font-weight: 600; }
 .filter-label { font-size: 0.75rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+
+/* Top-right theme switch: intentionally separate from Streamlit action buttons. */
+.theme-toggle-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0.15rem 0 1rem;
+}
+.theme-toggle-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 7px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 23, 42, 0.16);
+    background: rgba(15, 23, 42, 0.035);
+    color: #1e293b !important;
+    font-family: 'Nunito', sans-serif;
+    font-size: 0.84rem;
+    font-weight: 800;
+    line-height: 1;
+    text-decoration: none !important;
+    box-shadow: none;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+.theme-toggle-button:hover {
+    background: rgba(15, 23, 42, 0.075);
+    border-color: rgba(15, 23, 42, 0.28);
+    color: #0f172a !important;
+    transform: translateY(-1px);
+}
+.theme-toggle-button span {
+    color: inherit !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -640,21 +675,40 @@ html, body, [class*="css"] {
     border-color: #d97706;
 }
 .divider { border-top-color: #334155; }
+.theme-toggle-button {
+    background: rgba(248, 250, 252, 0.07);
+    border-color: rgba(248, 250, 252, 0.18);
+    color: #f8fafc !important;
+}
+.theme-toggle-button:hover {
+    background: rgba(248, 250, 252, 0.13);
+    border-color: rgba(248, 250, 252, 0.32);
+    color: #ffffff !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
 def render_theme_toggle() -> None:
-    """Render a compact top-right button that switches the app theme."""
+    """Render a compact top-right control that switches the app theme."""
     current = st.session_state.get("theme_mode", "light")
     next_mode = "light" if current == "dark" else "dark"
     label = "Light mode" if current == "dark" else "Dark mode"
+    icon = "&#9728;" if current == "dark" else "&#9790;"
 
     _, toggle_col = st.columns([6, 1.25])
     with toggle_col:
-        if st.button(label, key="theme_mode_toggle", help=f"Switch to {next_mode} mode"):
-            st.session_state["theme_mode"] = next_mode
-            st.rerun()
+        st.markdown(
+            f'''
+<div class="theme-toggle-wrap">
+  <a class="theme-toggle-button" href="?theme={next_mode}" target="_self" aria-label="Switch to {next_mode} mode">
+    <span>{icon}</span>
+    <span>{label}</span>
+  </a>
+</div>
+''',
+            unsafe_allow_html=True,
+        )
 
 
 def render_hero() -> None:

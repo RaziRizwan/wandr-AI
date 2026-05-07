@@ -149,7 +149,13 @@ from ml_model.gem_detector import rank_places
 from utils.helpers import esc
 
 # ── CSS and Hero ───────────────────────────────────────────────────────────────
-if "theme_mode" not in st.session_state:
+theme_param = st.query_params.get("theme")
+if isinstance(theme_param, list):
+    theme_param = theme_param[0] if theme_param else None
+
+if theme_param in ("light", "dark"):
+    st.session_state["theme_mode"] = theme_param
+elif "theme_mode" not in st.session_state:
     st.session_state["theme_mode"] = "light"
 
 render_css(st.session_state["theme_mode"])
